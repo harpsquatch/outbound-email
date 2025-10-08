@@ -205,8 +205,8 @@ const EmailTemplateSelector = () => {
       // First handle the special auto-populated fields with exact placeholder names
       const specialFields = {
         "Recipient's Company": companyInfo.name,
-        "Industry": companyInfo.industry,
-        "industry": companyInfo.industry,
+        "Industry": companyInfo.industry || "this industry",
+        "industry": companyInfo.industry || "this industry",
         "specific achievement or aspect of their business": companyInfo.businessFocus
       };
 

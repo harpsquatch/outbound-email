@@ -6,6 +6,7 @@ interface EmailDraftData {
   recipient_email: string;
   subject: string;
   body: string;
+  attachment?: File;
 }
 
 interface DraftResponse {
@@ -34,11 +35,20 @@ interface WebScrapingRequest {
 
 interface WebScrapingResponse {
   success: boolean;
-  company_name?: string;
-  industry?: string;
-  achievements?: string[];
-  description?: string;
   error?: string;
+  company_name: string;
+  industry: string;
+  business_focus: string;
+  description: string;
+  key_achievements: string;
+  values: string;
+  market_position: string;
+  products_summary: string;
+  ai_enhanced: boolean;
+  design_focus: string;
+  dev_focus: string;
+  ai_focus: string;
+  achievements: string;
 }
 
 interface RefineEmailRequest {
@@ -58,9 +68,21 @@ interface RefineEmailResponse {
 
 export const createDraft = async (draftData: EmailDraftData): Promise<DraftResponse> => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/create-draft`, draftData);
+    const formData = new FormData();
+    formData.append('recipient_email', draftData.recipient_email);
+    formData.append('subject', draftData.subject);
+    formData.append('body', draftData.body);
     
-    // Check if authentication is required
+    if (draftData.attachment) {
+      formData.append('attachment', draftData.attachment);
+    }
+    
+    const response = await axios.post(`${API_BASE_URL}/create-draft`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    
     if (response.data.auth_required === true && response.data.auth_url) {
       return {
         success: false,
@@ -99,25 +121,60 @@ export const generateAIContent = async (requestData: AIContentRequest): Promise<
   }
 };
 
-export const scrapeWebsite = async (domain: string): Promise<WebScrapingResponse> => {
-  try {
-    const response = await axios.post(`${API_BASE_URL}/scrape-website`, { domain });
-    
-    return {
-      success: true,
-      company_name: response.data.company_name,
-      industry: response.data.industry,
-      achievements: response.data.achievements,
-      description: response.data.description
-    };
-  } catch (error: any) {
-    console.error('Error scraping website:', error);
-    return {
-      success: false,
-      error: error.response?.data?.detail || 'Failed to scrape website'
-    };
-  }
-};
+export async function scrapeWebsite(domain: string): Promise<WebScrapingResponse> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/scrape-website`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ domain }),
+        });
+
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to scrape website');
+        }
+
+        // The backend now returns structured data directly
+        return {
+            success: true,
+            company_name: data.searchData.company_name || '',
+            industry: data.searchData.industry || '',
+            business_focus: data.searchData.business_focus || '',
+            description: data.searchData.description || '',
+            key_achievements: data.searchData.key_achievements || '',
+            values: data.searchData.values || '',
+            market_position: data.searchData.market_position || '',
+            products_summary: data.searchData.products_summary || '',
+            ai_enhanced: true,
+            design_focus: data.searchData.design_focus || '',
+            dev_focus: data.searchData.development_focus || '',
+            ai_focus: data.searchData.ai_integration_focus || '',
+            achievements: data.searchData.key_achievements || ''
+        };
+    } catch (error) {
+        console.error('Error performing web search:', error);
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to scrape website',
+            company_name: '',
+            industry: '',
+            business_focus: '',
+            description: '',
+            key_achievements: '',
+            values: '',
+            market_position: '',
+            products_summary: '',
+            ai_enhanced: false,
+            design_focus: '',
+            dev_focus: '',
+            ai_focus: '',
+            achievements: ''
+        };
+    }
+}
 
 export const refineEmailContent = async ({
   subject,

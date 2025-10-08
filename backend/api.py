@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -7,6 +7,9 @@ import ai_generator  # New import for AI functionality
 import web_scraper  # New import for web scraping functionality
 from email_refiner import refine_email_content
 from company_analyzer import enhance_company_data
+from ai_prompts import analyze_company
+import os
+import tempfile
 
 app = FastAPI()
 
@@ -40,21 +43,44 @@ class RefineEmailRequest(BaseModel):
     company_name: Optional[str] = None
 
 @app.post("/create-draft")
-async def create_draft(email_draft: EmailDraft):
+async def create_draft(
+    recipient_email: str = Form(...),
+    subject: str = Form(...),
+    body: str = Form(...),
+    attachment: Optional[UploadFile] = File(None)
+):
     try:
         # Check if authenticated, if not, get auth URL
         if not gmail_integration.check_auth():
             auth_url = gmail_integration.get_authorization_url()
             return {"success": False, "auth_required": True, "auth_url": auth_url}
         
-        # If authenticated, create the draft
+        # Handle attachment if provided
+        attachment_path = None
+        if attachment:
+            # Create a temporary file to store the attachment
+            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                content = await attachment.read()
+                temp_file.write(content)
+                attachment_path = temp_file.name
+        
+        # Create the draft with attachment
         draft_id = gmail_integration.create_draft(
-            recipient_email=email_draft.recipient_email,
-            subject=email_draft.subject,
-            body=email_draft.body
+            recipient_email=recipient_email,
+            subject=subject,
+            body=body,
+            attachment_path=attachment_path
         )
+        
+        # Clean up temporary file if it exists
+        if attachment_path and os.path.exists(attachment_path):
+            os.unlink(attachment_path)
+        
         return {"success": True, "draft_id": draft_id}
     except Exception as e:
+        # Clean up temporary file if it exists
+        if attachment_path and os.path.exists(attachment_path):
+            os.unlink(attachment_path)
         raise HTTPException(status_code=500, detail=f"Failed to create draft: {str(e)}")
 
 @app.post("/generate-ai-content")
@@ -72,26 +98,44 @@ async def generate_ai_content(request: AIContentRequest):
 @app.post("/scrape-website")
 async def scrape_website(request: WebScrapingRequest):
     try:
-        # Get raw company data from web scraper
-        company_data = web_scraper.get_company_info(request.domain)
+        print(f"Analyzing company: {request.domain}")
+        result = analyze_company(request.domain)
         
-        # Enhance the data with AI analysis
-        enhanced_data = enhance_company_data(company_data)
+        if not result.get("success"):
+            print(f"Analysis failed for {request.domain}: {result.get('error', 'Unknown error')}")
+            # Return a partial result with default values
+            return {
+                "success": False,
+                "error": result.get("error", "Failed to analyze company"),
+                "searchData": {
+                    "company_name": request.domain.split('.')[0].capitalize(),
+                    "industry": "technology",
+                    "business_focus": "digital transformation and growth",
+                    "design_focus": "UI/UX optimization for improved user engagement",
+                    "development_focus": "Scalable, AI-powered architecture",
+                    "ai_integration_focus": "Custom AI solutions for automation and efficiency",
+                    "description": f"A company in the technology industry providing innovative solutions."
+                }
+            }
         
-        # Ensure business_focus is included in the response
-        return {
-            "success": True,
-            "company_name": enhanced_data.get("company_name", ""),
-            "industry": enhanced_data.get("industry", ""),
-            "business_focus": enhanced_data.get("business_focus", ""),  # This will now be populated
-            "description": enhanced_data.get("description", ""),
-            "key_achievements": enhanced_data.get("key_achievements", []),
-            "values": enhanced_data.get("values", []),
-            "market_position": enhanced_data.get("market_position", ""),
-            "ai_enhanced": enhanced_data.get("ai_enhanced", False)
-        }
+        print(f"Analysis successful for {request.domain}")
+        return result
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to analyze company: {str(e)}")
+        print(f"Exception analyzing company {request.domain}: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "searchData": {
+                "company_name": request.domain.split('.')[0].capitalize(),
+                "industry": "technology",
+                "business_focus": "digital transformation and growth",
+                "design_focus": "UI/UX optimization for improved user engagement",
+                "development_focus": "Scalable, AI-powered architecture",
+                "ai_integration_focus": "Custom AI solutions for automation and efficiency",
+                "description": f"A company in the technology industry providing innovative solutions."
+            }
+        }
 
 @app.post("/refine-email")
 async def refine_email(request: RefineEmailRequest):
